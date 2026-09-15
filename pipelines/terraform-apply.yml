@@ -1,0 +1,131 @@
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+
+- stage: TerraformApply
+  displayName: Terraform Apply
+
+  jobs:
+
+  - deployment: Apply
+    displayName: Terraform Apply
+
+    environment: terraform-production
+
+    strategy:
+      runOnce:
+        deploy:
+
+          steps:
+
+          # Checkout repository
+          - checkout: self
+            displayName: Checkout Repository
+
+          # Install Terraform
+          - bash: |
+              sudo apt-get update
+              sudo apt-get install -y gnupg software-properties-common
+
+              wget -O- https://apt.releases.hashicorp.com/gpg | \
+                gpg --dearmor | \
+                sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+
+              echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+                https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+                sudo tee /etc/apt/sources.list.d/hashicorp.list
+
+              sudo apt-get update
+              sudo apt-get install -y terraform
+
+              echo "Terraform version:"
+              terraform version
+
+            displayName: Install Terraform
+
+          # Download Terraform plan
+          - task: DownloadPipelineArtifact@2
+            displayName: Download Terraform Plan
+            inputs:
+              buildType: specific
+              project: '$(System.TeamProject)'
+              definition: 'terraform-plan'
+              buildVersionToDownload: latest
+              artifactName: terraform-plan
+              targetPath: '$(Pipeline.Workspace)/terraform-plan'
+
+          # Authenticate to Azure and apply
+          - task: AzureCLI@2
+            displayName: Terraform Init and Apply
+            inputs:
+              azureSubscription: 'Azure-Service-Connection'
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+
+              inlineScript: |
+
+                echo "======================================"
+                echo "Azure Account"
+                echo "======================================"
+
+                az account show \
+                  --query "{subscriptionId:id, tenantId:tenantId}" \
+                  -o table
+
+                echo ""
+                echo "Getting Azure Subscription ID..."
+
+                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+                export TF_VAR_subscription_id="$SUBSCRIPTION_ID"
+
+                echo ""
+                echo "======================================"
+                echo "Terraform Version"
+                echo "======================================"
+
+                terraform version
+
+                echo ""
+                echo "======================================"
+                echo "Terraform Init"
+                echo "======================================"
+
+                terraform init -reconfigure
+
+                echo ""
+                echo "======================================"
+                echo "Checking Terraform Plan"
+                echo "======================================"
+
+                if [ ! -f "$(Pipeline.Workspace)/terraform-plan/tfplan" ]; then
+                  echo "ERROR: Terraform plan artifact was not found."
+                  exit 1
+                fi
+
+                echo "Terraform plan artifact found."
+
+                echo ""
+                echo "======================================"
+                echo "Copying Terraform Plan"
+                echo "======================================"
+
+                cp "$(Pipeline.Workspace)/terraform-plan/tfplan" ./tfplan
+
+                ls -lh ./tfplan
+
+                echo ""
+                echo "======================================"
+                echo "Terraform Apply"
+                echo "======================================"
+
+                terraform apply -auto-approve tfplan
+
+                echo ""
+                echo "======================================"
+                echo "Terraform Apply Completed"
+                echo "======================================"
