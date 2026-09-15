@@ -8,22 +8,24 @@ pool:
 
 variables:
 
+  # Docker / ACR
   imageRepository: 'azure-aks-app'
   containerRegistry: 'azureaksacr01.azurecr.io'
-
   dockerfilePath: 'app/Dockerfile'
 
+  # AKS
   aksResourceGroup: 'azure-aks-rg'
   aksClusterName: 'azure-aks-cluster'
 
+  # Use the Azure DevOps Build ID as the Docker image tag
   tag: '$(Build.BuildId)'
 
 
 stages:
 
-# ==========================================================
+# ============================================================
 # BUILD STAGE
-# ==========================================================
+# ============================================================
 
 - stage: Build
   displayName: Build and Push Docker Image
@@ -38,20 +40,57 @@ stages:
     - checkout: self
       displayName: Checkout Repository
 
+
+    # --------------------------------------------------------
+    # Verify ACR Configuration
+    # --------------------------------------------------------
+
+    - bash: |
+        echo "======================================"
+        echo "ACR Configuration"
+        echo "======================================"
+
+        echo "Image Repository:"
+        echo "$(imageRepository)"
+
+        echo ""
+        echo "Container Registry:"
+        echo "$(containerRegistry)"
+
+        echo ""
+        echo "Dockerfile:"
+        echo "$(dockerfilePath)"
+
+        echo ""
+        echo "Image Tag:"
+        echo "$(tag)"
+
+      displayName: Verify ACR Configuration
+
+
+    # --------------------------------------------------------
+    # Build and Push Docker Image
+    # --------------------------------------------------------
+
     - task: Docker@2
       displayName: Build and Push Docker Image
+
       inputs:
         command: buildAndPush
+
         repository: $(imageRepository)
+
         dockerfile: $(dockerfilePath)
+
         containerRegistry: 'ACR-Service-Connection'
+
         tags: |
           $(tag)
 
 
-# ==========================================================
+# ============================================================
 # DEPLOY STAGE
-# ==========================================================
+# ============================================================
 
 - stage: Deploy
   displayName: Deploy to AKS
@@ -62,44 +101,134 @@ stages:
   jobs:
 
   - job: Deploy
-    displayName: Deploy Application
+    displayName: Deploy Application to AKS
 
     steps:
 
     - checkout: self
       displayName: Checkout Repository
 
-    # Get AKS credentials
+
+    # --------------------------------------------------------
+    # Get AKS Credentials
+    # --------------------------------------------------------
+
     - task: AzureCLI@2
       displayName: Get AKS Credentials
       inputs:
+
         azureSubscription: 'Azure-Service-Connection'
+
         scriptType: bash
+
         scriptLocation: inlineScript
 
         inlineScript: |
 
-          echo "Getting AKS credentials..."
+          echo "======================================"
+          echo "Getting AKS Credentials"
+          echo "======================================"
 
           az aks get-credentials \
             --resource-group $(aksResourceGroup) \
             --name $(aksClusterName) \
             --overwrite-existing
 
-          echo "Checking AKS nodes..."
+
+          echo ""
+          echo "======================================"
+          echo "Checking AKS Nodes"
+          echo "======================================"
 
           kubectl get nodes
 
 
-    # Deploy application
-    - task: KubernetesManifest@1
+          echo ""
+          echo "======================================"
+          echo "Current Kubernetes Context"
+          echo "======================================"
+
+          kubectl config current-context
+
+
+    # --------------------------------------------------------
+    # Deploy Kubernetes Manifests
+    # --------------------------------------------------------
+
+    - task: AzureCLI@2
       displayName: Deploy Application to AKS
       inputs:
-        action: deploy
 
-        manifests: |
-          k8s/deployment.yml
-          k8s/service.yml
+        azureSubscription: 'Azure-Service-Connection'
 
-        containers: |
-          $(containerRegistry)/$(imageRepository):$(tag)
+        scriptType: bash
+
+        scriptLocation: inlineScript
+
+        inlineScript: |
+
+          echo "======================================"
+          echo "Applying Kubernetes Deployment"
+          echo "======================================"
+
+          kubectl apply -f k8s/deployment.yml
+
+
+          echo ""
+          echo "======================================"
+          echo "Applying Kubernetes Service"
+          echo "======================================"
+
+          kubectl apply -f k8s/service.yml
+
+
+          echo ""
+          echo "======================================"
+          echo "Updating Application Image"
+          echo "======================================"
+
+          kubectl set image deployment/azure-aks-app \
+            azure-aks-app=$(containerRegistry)/$(imageRepository):$(tag)
+
+
+          echo ""
+          echo "======================================"
+          echo "Waiting for Deployment"
+          echo "======================================"
+
+          kubectl rollout status deployment/azure-aks-app
+
+
+          echo ""
+          echo "======================================"
+          echo "Pods"
+          echo "======================================"
+
+          kubectl get pods -o wide
+
+
+          echo ""
+          echo "======================================"
+          echo "Deployment"
+          echo "======================================"
+
+          kubectl get deployment azure-aks-app
+
+
+          echo ""
+          echo "======================================"
+          echo "Service"
+          echo "======================================"
+
+          kubectl get service azure-aks-app
+
+
+          echo ""
+          echo "======================================"
+          echo "Application Image"
+          echo "======================================"
+
+          kubectl get deployment azure-aks-app \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+          echo ""
