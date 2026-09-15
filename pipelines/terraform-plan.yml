@@ -18,8 +18,11 @@ stages:
 
     steps:
 
+    # Checkout repository
     - checkout: self
+      displayName: Checkout Repository
 
+    # Install Terraform
     - bash: |
         sudo apt-get update
         sudo apt-get install -y gnupg software-properties-common
@@ -35,9 +38,11 @@ stages:
         sudo apt-get update
         sudo apt-get install -y terraform
 
+        echo "Terraform version:"
         terraform version
       displayName: Install Terraform
 
+    # Authenticate to Azure and run Terraform
     - task: AzureCLI@2
       displayName: Terraform Init Validate Plan
       inputs:
@@ -45,23 +50,68 @@ stages:
         scriptType: bash
         scriptLocation: inlineScript
         workingDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+
         inlineScript: |
 
-          echo "Terraform version:"
+          echo "======================================"
+          echo "Azure Account"
+          echo "======================================"
+
+          az account show \
+            --query "{subscriptionId:id, tenantId:tenantId, user:user.name}" \
+            -o table
+
+          echo ""
+          echo "Getting Azure Subscription ID..."
+
+          SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+          echo "Subscription ID retrieved successfully."
+
+          # Provide subscription ID to Terraform
+          export TF_VAR_subscription_id="$SUBSCRIPTION_ID"
+
+          echo ""
+          echo "======================================"
+          echo "Terraform Version"
+          echo "======================================"
+
           terraform version
 
-          echo "Initializing Terraform..."
+          echo ""
+          echo "======================================"
+          echo "Terraform Init"
+          echo "======================================"
+
           terraform init -reconfigure
 
-          echo "Formatting check..."
+          echo ""
+          echo "======================================"
+          echo "Terraform Format Check"
+          echo "======================================"
+
           terraform fmt -check
 
-          echo "Validating Terraform..."
+          echo ""
+          echo "======================================"
+          echo "Terraform Validate"
+          echo "======================================"
+
           terraform validate
 
-          echo "Creating Terraform plan..."
+          echo ""
+          echo "======================================"
+          echo "Terraform Plan"
+          echo "======================================"
+
           terraform plan -out=tfplan
 
+          echo ""
+          echo "======================================"
+          echo "Terraform Plan Completed"
+          echo "======================================"
+
+    # Publish Terraform plan
     - task: PublishPipelineArtifact@1
       displayName: Publish Terraform Plan
       inputs:
