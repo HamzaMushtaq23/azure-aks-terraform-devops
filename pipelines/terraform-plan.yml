@@ -40,9 +40,10 @@ stages:
 
         echo "Terraform version:"
         terraform version
+
       displayName: Install Terraform
 
-    # Authenticate to Azure and run Terraform
+    # Azure authentication + Terraform
     - task: AzureCLI@2
       displayName: Terraform Init Validate Plan
       inputs:
@@ -58,7 +59,7 @@ stages:
           echo "======================================"
 
           az account show \
-            --query "{subscriptionId:id, tenantId:tenantId, user:user.name}" \
+            --query "{subscriptionId:id, tenantId:tenantId}" \
             -o table
 
           echo ""
@@ -66,10 +67,9 @@ stages:
 
           SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 
-          echo "Subscription ID retrieved successfully."
-
-          # Provide subscription ID to Terraform
           export TF_VAR_subscription_id="$SUBSCRIPTION_ID"
+
+          echo "Subscription ID configured for Terraform."
 
           echo ""
           echo "======================================"
@@ -104,17 +104,27 @@ stages:
           echo "Terraform Plan"
           echo "======================================"
 
-          terraform plan -out=tfplan
+          terraform plan \
+            -out="$(Pipeline.Workspace)/tfplan"
 
           echo ""
           echo "======================================"
-          echo "Terraform Plan Completed"
+          echo "Checking Terraform Plan File"
           echo "======================================"
+
+          ls -lah "$(Pipeline.Workspace)"
+
+          if [ ! -f "$(Pipeline.Workspace)/tfplan" ]; then
+            echo "ERROR: Terraform plan file was not created."
+            exit 1
+          fi
+
+          echo "Terraform plan file created successfully."
 
     # Publish Terraform plan
     - task: PublishPipelineArtifact@1
       displayName: Publish Terraform Plan
       inputs:
-        targetPath: '$(System.DefaultWorkingDirectory)/terraform/tfplan'
+        targetPath: '$(Pipeline.Workspace)/tfplan'
         artifact: 'terraform-plan'
         publishLocation: 'pipeline'
