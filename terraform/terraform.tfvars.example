@@ -1,0 +1,7 @@
+subscription_id     = "YOUR-SUBSCRIPTION-ID"
+resource_group_name = "azure-aks-rg"
+location            = "East Asia"
+acr_name            = "YOUR-UNIQUE-ACR-NAME"
+aks_cluster_name    = "azure-aks-cluster"
+node_count          = 1
+vm_size             = "Standard_B2s_v2"
