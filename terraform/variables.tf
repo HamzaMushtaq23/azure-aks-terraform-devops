@@ -30,7 +30,7 @@ variable "acr_name" {
 variable "node_count" {
   description = "Number of AKS nodes"
   type        = number
-  default     = 1
+  default     = 2
 }
 
 variable "vm_size" {
